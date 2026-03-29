@@ -1,3 +1,5 @@
+export type BoothLayout = 'vertical' | 'grid';
+
 export interface FilterDef {
   id: string;
   name: string;
@@ -19,15 +21,40 @@ export interface FrameDef {
   name: string;
   bgColor: string;
   borderColor: string;
+  /** 自定义边框底图（整张铺满画布，格位照片叠加上去） */
+  imageUrl?: string;
 }
 
 export const FRAMES: FrameDef[] = [
   { id: 'white', name: '经典白', bgColor: '#FFFFFF', borderColor: '#F0F0F0' },
-  { id: 'pink', name: '少女粉', bgColor: '#FFF0F3', borderColor: '#FFD6E0' },
-  { id: 'blue', name: '清新蓝', bgColor: '#F0F7FF', borderColor: '#D6EAFF' },
-  { id: 'cream', name: '奶油', bgColor: '#FDFBF7', borderColor: '#F0EBE0' },
-  { id: 'lavender', name: '薰衣草', bgColor: '#F8F0FF', borderColor: '#E8D6FF' },
+  { id: 'pink', name: '浅粉格', bgColor: '#FFF5F7', borderColor: '#F5C6D6' },
+  { id: 'blue', name: '浅蓝格', bgColor: '#F0F7FB', borderColor: '#C8E0F0' },
+  { id: 'cream', name: '奶白格', bgColor: '#FDFBF7', borderColor: '#EDE5DC' },
+  { id: 'duo', name: '粉蓝拼', bgColor: '#FDFBF7', borderColor: '#E8C4CF' },
+  { id: 'black', name: '墨黑格', bgColor: '#2E2E32', borderColor: '#1A1A1E' },
+  { id: 'mint', name: '浅绿格', bgColor: '#EEF5F0', borderColor: '#B8D9C4' },
+  { id: 'butter', name: '奶黄格', bgColor: '#FFF9ED', borderColor: '#F0E0B8' },
+  { id: 'lilac', name: '淡紫格', bgColor: '#F3F0FA', borderColor: '#D4C8EA' },
 ];
+
+function hexLuminance(hex: string): number {
+  const m = /^#?([\da-f]{6})$/i.exec(hex.trim());
+  if (!m) return 0.85;
+  const n = parseInt(m[1], 16);
+  const r = ((n >> 16) & 255) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** 底部落款文字颜色（深底相框用浅色字） */
+export function frameFooterColors(frame: FrameDef): { main: string; date: string } {
+  if (frame.imageUrl) return { main: '#666666', date: '#999999' };
+  if (hexLuminance(frame.bgColor) < 0.45) {
+    return { main: '#ECECEF', date: '#B8B8C0' };
+  }
+  return { main: '#777777', date: '#BBBBBB' };
+}
 
 export const STICKER_EMOJIS = ['🌸', '🎀', '💕', '✨', '🦋', '🍓', '🌈', '💫', '🐰', '⭐', '🍰', '🌷', '💖', '🧸', '🎂'];
 
@@ -36,6 +63,31 @@ export interface PlacedSticker {
   emoji: string;
   x: number;
   y: number;
+}
+
+/** 导出画布尺寸（与布局几何一致） */
+export const CANVAS_GRID = { W: 600, H: 940 } as const;
+export const CANVAS_VERTICAL = { W: 600, H: 1140 } as const;
+
+export function getStripAspectRatio(layout: BoothLayout): string {
+  return layout === 'vertical'
+    ? `${CANVAS_VERTICAL.W} / ${CANVAS_VERTICAL.H}`
+    : `${CANVAS_GRID.W} / ${CANVAS_GRID.H}`;
+}
+
+/** 自定义边框裁剪视窗宽高比（宽/高） */
+export function getFrameCropAspect(layout: BoothLayout): number {
+  return layout === 'vertical'
+    ? CANVAS_VERTICAL.W / CANVAS_VERTICAL.H
+    : CANVAS_GRID.W / CANVAS_GRID.H;
+}
+
+/** 自定义边框导出像素（2× 画布，供高清合成） */
+export function getCustomFrameExportDimensions(layout: BoothLayout): { width: number; height: number } {
+  const s = 2;
+  return layout === 'vertical'
+    ? { width: CANVAS_VERTICAL.W * s, height: CANVAS_VERTICAL.H * s }
+    : { width: CANVAS_GRID.W * s, height: CANVAS_GRID.H * s };
 }
 
 export function playShutterSound() {
@@ -56,9 +108,28 @@ export function playShutterSound() {
   }
 }
 
+function drawImageCover(
+  ctx: CanvasRenderingContext2D,
+  img: CanvasImageSource,
+  dx: number,
+  dy: number,
+  dWidth: number,
+  dHeight: number,
+) {
+  const iw = (img as HTMLImageElement).width;
+  const ih = (img as HTMLImageElement).height;
+  const scale = Math.max(dWidth / iw, dHeight / ih);
+  const sw = dWidth / scale;
+  const sh = dHeight / scale;
+  const sx = (iw - sw) / 2;
+  const sy = (ih - sh) / 2;
+  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dWidth, dHeight);
+}
+
 export async function generateComposite(options: {
   photos: string[];
   frame: FrameDef;
+  layout: BoothLayout;
   globalFilter: string;
   photoFilters: string[];
   stickers: PlacedSticker[];
@@ -66,40 +137,74 @@ export async function generateComposite(options: {
   showDate: boolean;
   format: 'jpg' | 'png';
 }): Promise<string> {
-  const { photos, frame, globalFilter, photoFilters, stickers, text, showDate, format } = options;
+  const { photos, frame, layout, globalFilter, photoFilters, stickers, text, showDate, format } = options;
 
-  const W = 600;
-  const H = 940;
-  const PAD = 24;
-  const GAP = 12;
-  const CELL_W = (W - 2 * PAD - GAP) / 2;
-  const CELL_H = CELL_W;
-  const CORNER = 10;
+  const W = layout === 'vertical' ? CANVAS_VERTICAL.W : CANVAS_GRID.W;
+  const H = layout === 'vertical' ? CANVAS_VERTICAL.H : CANVAS_GRID.H;
 
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext('2d')!;
 
-  // Background
-  ctx.fillStyle = frame.bgColor;
-  ctx.fillRect(0, 0, W, H);
+  if (frame.imageUrl) {
+    try {
+      const bgImg = await loadImage(frame.imageUrl);
+      drawImageCover(ctx, bgImg, 0, 0, W, H);
+    } catch {
+      ctx.fillStyle = frame.bgColor;
+      ctx.fillRect(0, 0, W, H);
+    }
+  } else {
+    ctx.fillStyle = frame.bgColor;
+    ctx.fillRect(0, 0, W, H);
+  }
 
-  // Decorative border
-  ctx.strokeStyle = frame.borderColor;
-  ctx.lineWidth = 2;
-  roundRect(ctx, 6, 6, W - 12, H - 12, 16);
-  ctx.stroke();
+  if (!frame.imageUrl) {
+    ctx.strokeStyle = frame.borderColor;
+    ctx.lineWidth = 2;
+    roundRect(ctx, 6, 6, W - 12, H - 12, 16);
+    ctx.stroke();
+  }
 
-  // Load and draw photos
+  const PAD = layout === 'vertical' ? 22 : 24;
+  const GAP = layout === 'vertical' ? 14 : 16;
+  const TEXT_H = layout === 'vertical' ? 82 : 76;
+  const CORNER = 10;
+
+  const slots: { x: number; y: number; cw: number; ch: number }[] = [];
+
+  if (layout === 'grid') {
+    const CELL_W = (W - 2 * PAD - GAP) / 2;
+    const CELL_H = CELL_W;
+    for (let i = 0; i < 4; i++) {
+      const col = i % 2;
+      const row = Math.floor(i / 2);
+      slots.push({
+        x: PAD + col * (CELL_W + GAP),
+        y: PAD + row * (CELL_H + GAP),
+        cw: CELL_W,
+        ch: CELL_H,
+      });
+    }
+  } else {
+    const innerW = W - 2 * PAD;
+    const innerH = H - 2 * PAD - TEXT_H;
+    const cellH = (innerH - 3 * GAP) / 4;
+    for (let i = 0; i < 4; i++) {
+      slots.push({
+        x: PAD,
+        y: PAD + i * (cellH + GAP),
+        cw: innerW,
+        ch: cellH,
+      });
+    }
+  }
+
   for (let i = 0; i < 4; i++) {
-    const col = i % 2;
-    const row = Math.floor(i / 2);
-    const x = PAD + col * (CELL_W + GAP);
-    const y = PAD + row * (CELL_H + GAP);
-
+    const { x, y, cw, ch } = slots[i];
     ctx.save();
-    roundRect(ctx, x, y, CELL_W, CELL_H, CORNER);
+    roundRect(ctx, x, y, cw, ch, CORNER);
     ctx.clip();
 
     if (photos[i]) {
@@ -109,23 +214,20 @@ export async function generateComposite(options: {
       if (filterStr !== 'none') {
         ctx.filter = filterStr;
       }
-
-      // Cover fit
-      const scale = Math.max(CELL_W / img.width, CELL_H / img.height);
-      const sw = CELL_W / scale;
-      const sh = CELL_H / scale;
+      const scale = Math.max(cw / img.width, ch / img.height);
+      const sw = cw / scale;
+      const sh = ch / scale;
       const sx = (img.width - sw) / 2;
       const sy = (img.height - sh) / 2;
-      ctx.drawImage(img, sx, sy, sw, sh, x, y, CELL_W, CELL_H);
+      ctx.drawImage(img, sx, sy, sw, sh, x, y, cw, ch);
     } else {
-      ctx.fillStyle = '#F8F8F8';
-      ctx.fillRect(x, y, CELL_W, CELL_H);
+      ctx.filter = 'none';
+      ctx.fillStyle = '#F4F4F4';
+      ctx.fillRect(x, y, cw, ch);
     }
-
     ctx.restore();
   }
 
-  // Draw stickers
   ctx.filter = 'none';
   for (const sticker of stickers) {
     const sx = (sticker.x / 100) * W;
@@ -136,23 +238,30 @@ export async function generateComposite(options: {
     ctx.fillText(sticker.emoji, sx, sy);
   }
 
-  // Draw text area
-  const textBaseY = PAD + 2 * (CELL_H + GAP) + 30;
-  ctx.filter = 'none';
-  ctx.fillStyle = '#888';
+  let textBaseY: number;
+  if (layout === 'grid') {
+    const CELL_H = (W - 2 * PAD - GAP) / 2;
+    textBaseY = PAD + 2 * (CELL_H + GAP) + 30;
+  } else {
+    const innerH = H - 2 * PAD - TEXT_H;
+    textBaseY = PAD + innerH + 26;
+  }
+
+  const footer = frameFooterColors(frame);
   ctx.textAlign = 'center';
 
   if (text) {
     ctx.font = '500 16px "Noto Sans SC", sans-serif';
+    ctx.fillStyle = footer.main;
     ctx.fillText(text, W / 2, textBaseY);
   }
 
   if (showDate) {
     const dateStr = new Date().toLocaleDateString('zh-CN', {
-      year: 'numeric', month: '2-digit', day: '2-digit'
+      year: 'numeric', month: '2-digit', day: '2-digit',
     });
     ctx.font = '300 13px "Noto Sans SC", sans-serif';
-    ctx.fillStyle = '#AAA';
+    ctx.fillStyle = footer.date;
     ctx.fillText(dateStr, W / 2, textBaseY + (text ? 28 : 0));
   }
 
@@ -184,6 +293,14 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 }
 
 const STORAGE_KEY = 'photobooth_photos';
+const STORAGE_SESSION = 'photobooth_session';
+
+export interface BoothSessionPersist {
+  layout: BoothLayout;
+  frame: FrameDef;
+  countdownSec: number;
+  captureMode: 'camera' | 'upload';
+}
 
 export function savePhotosToStorage(photos: string[]) {
   try {
@@ -204,4 +321,25 @@ export function loadPhotosFromStorage(): string[] {
 
 export function clearPhotosFromStorage() {
   localStorage.removeItem(STORAGE_KEY);
+}
+
+export function saveSessionToStorage(session: BoothSessionPersist) {
+  try {
+    localStorage.setItem(STORAGE_SESSION, JSON.stringify(session));
+  } catch {
+    console.warn('session save failed');
+  }
+}
+
+export function loadSessionFromStorage(): BoothSessionPersist | null {
+  try {
+    const data = localStorage.getItem(STORAGE_SESSION);
+    return data ? JSON.parse(data) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearSessionFromStorage() {
+  localStorage.removeItem(STORAGE_SESSION);
 }
