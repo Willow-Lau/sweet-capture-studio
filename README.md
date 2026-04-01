@@ -1,3 +1,2 @@
-# Welcome to your Lovable project
-
-TODO: Document your project here
+📸 SweetL Capture Studio - 四格大头贴相机
+一款简约可爱的手帐风四格大头贴拍摄工具，支持摄像头拍摄 / 本地上传，自定义边框与版式，轻松生成少女心满满的拼贴照片
