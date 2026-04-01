@@ -30,13 +30,13 @@ export default function WelcomePage({ onStart }: WelcomePageProps) {
         transition={{ duration: 0.45, ease: 'easeOut' }}
         className="relative z-10 text-center max-w-md"
       >
-        <h1 className="text-2xl sm:text-3xl font-semibold tracking-wide text-foreground mb-2">
-          四格大头贴
+        <h1 className="text-3xl sm:text-4xl font-semibold tracking-wide text-foreground mb-2">
+          SweetL人生四格
         </h1>
-        <p className="text-[11px] sm:text-xs tracking-[0.18em] text-muted-foreground uppercase mb-4">
+        <p className="text-xs sm:text-sm tracking-[0.18em] text-muted-foreground uppercase mb-4">
           Photo Booth
         </p>
-        <p className="text-sm text-foreground/70 mb-10 font-light">咔嚓咔嚓生活美好</p>
+        <p className="text-base text-foreground/70 mb-10 font-light">咔嚓咔嚓生活美好</p>
 
         <motion.button
           type="button"

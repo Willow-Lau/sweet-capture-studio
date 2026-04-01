@@ -15,17 +15,17 @@ interface FeatureSelectPageProps {
   onStart: (config: BoothSessionPersist) => void;
 }
 
-const COUNTDOWN_OPTIONS = [5, 10, 15] as const;
+const COUNTDOWN_OPTIONS = [3, 5, 8] as const;
 
 function LayoutPreviewA({ active }: { active: boolean }) {
   return (
     <div
-      className={`w-full h-full p-[12%] flex flex-col gap-[6%] rounded-xl transition-all duration-200 bg-[#FFFCFA] ${
+      className={`w-full aspect-[1/3] p-[12%] flex flex-col gap-[10%] rounded-xl transition-all duration-200 bg-[#FFFCFA] ${
         active ? 'ring-2 ring-primary/40 ring-offset-2 ring-offset-[#FDFBF7]' : 'ring-1 ring-border/50'
       }`}
     >
       {[0, 1, 2, 3].map(i => (
-        <div key={i} className="flex-1 rounded-md bg-secondary/50 min-h-0" />
+        <div key={i} className="w-full aspect-[4/3] rounded-md bg-secondary/50 min-h-0" />
       ))}
     </div>
   );
@@ -40,7 +40,7 @@ function LayoutPreviewB({ active }: { active: boolean }) {
     >
       <div className="w-full h-full grid grid-cols-2 gap-[10%]">
         {[0, 1, 2, 3].map(i => (
-          <div key={i} className="rounded-md bg-secondary/50 min-h-0" />
+          <div key={i} className="w-full aspect-[3/4] rounded-md bg-secondary/50 min-h-0" />
         ))}
       </div>
     </div>
@@ -72,14 +72,14 @@ function FrameStripPreview({ layout, frame }: { layout: BoothLayout; frame: Fram
               {[0, 1, 2, 3].map(i => (
                 <div
                   key={i}
-                  className="flex-1 min-h-[6px] rounded-lg bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)]"
+                  className="w-full max-w-[92%] mx-auto aspect-[4/3] rounded-lg bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)]"
                 />
               ))}
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-[5%] p-[5%] pb-[3%] flex-1 content-start">
               {[0, 1, 2, 3].map(i => (
-                <div key={i} className="aspect-square rounded-lg bg-white min-h-0 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)]" />
+                <div key={i} className="aspect-[3/4] rounded-lg bg-white min-h-0 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)]" />
               ))}
             </div>
           )}
@@ -95,7 +95,7 @@ function FrameStripPreview({ layout, frame }: { layout: BoothLayout; frame: Fram
 export default function FeatureSelectPage({ onBack, onStart }: FeatureSelectPageProps) {
   const [layout, setLayout] = useState<BoothLayout>('vertical');
   const [frame, setFrame] = useState<FrameDef>(FRAMES[0]);
-  const [countdownSec, setCountdownSec] = useState<5 | 10 | 15>(5);
+  const [countdownSec, setCountdownSec] = useState<3 | 5 | 8>(3);
   const [captureMode, setCaptureMode] = useState<'camera' | 'upload'>('camera');
   const [busy, setBusy] = useState<string | null>(null);
   const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
@@ -222,11 +222,18 @@ export default function FeatureSelectPage({ onBack, onStart }: FeatureSelectPage
                 layout === 'vertical' ? 'bg-primary/12 shadow-sm' : 'bg-card/70 hover:bg-card'
               } border ${layout === 'vertical' ? 'border-primary/35' : 'border-border/50'}`}
             >
-              <div className="aspect-[3/5] max-h-[140px] w-full mx-auto">
-                <LayoutPreviewA active={layout === 'vertical'} />
+              <div className="w-full flex justify-center">
+                <div className="w-[78%]">
+                  {/* 与 B 版预览同等外框尺寸，内部保持 A(1:3) 不变 */}
+                  <div className="w-full aspect-[3/4] flex items-center justify-center">
+                    <div className="w-[72%]">
+                      <LayoutPreviewA active={layout === 'vertical'} />
+                    </div>
+                  </div>
+                </div>
               </div>
               <p className={`text-center text-xs mt-2 font-medium ${layout === 'vertical' ? 'text-foreground' : 'text-muted-foreground'}`}>
-                A · 竖排四格
+                A · 竖排四格 1:3
               </p>
             </button>
             <button
@@ -246,7 +253,7 @@ export default function FeatureSelectPage({ onBack, onStart }: FeatureSelectPage
                 </div>
               </div>
               <p className={`text-center text-xs mt-2 font-medium ${layout === 'grid' ? 'text-foreground' : 'text-muted-foreground'}`}>
-                B · 四宫格 3:4
+                B · 横排四格 3:4
               </p>
             </button>
           </div>
@@ -338,7 +345,7 @@ export default function FeatureSelectPage({ onBack, onStart }: FeatureSelectPage
           className="w-full py-3.5 rounded-2xl text-[15px] font-medium text-white shadow-md transition-opacity hover:opacity-95"
           style={{ backgroundColor: '#E8A8BC', boxShadow: '0 8px 24px -6px rgba(232, 168, 188, 0.4)' }}
         >
-          进入拍摄
+          开始
         </button>
       </motion.main>
     </div>

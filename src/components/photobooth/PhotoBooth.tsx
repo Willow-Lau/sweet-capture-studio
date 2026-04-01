@@ -21,6 +21,7 @@ interface PhotoBoothProps {
 }
 
 export default function PhotoBooth({ session, onExit }: PhotoBoothProps) {
+  type SelectedStickerDef = { kind: 'emoji' | 'image'; content: string } | null;
   const layout = session.layout;
   const captureMode = session.captureMode;
   const cameraOn = captureMode === 'camera';
@@ -39,7 +40,8 @@ export default function PhotoBooth({ session, onExit }: PhotoBoothProps) {
   const [photoFilters, setPhotoFilters] = useState(['none', 'none', 'none', 'none']);
   const [selectedFrame, setSelectedFrame] = useState<FrameDef>(session.frame);
   const [stickers, setStickers] = useState<PlacedSticker[]>([]);
-  const [selectedSticker, setSelectedSticker] = useState<string | null>(null);
+  const [selectedSticker, setSelectedSticker] = useState<SelectedStickerDef>(null);
+  const [activeStickerId, setActiveStickerId] = useState<string | null>(null);
   const [customText, setCustomText] = useState('');
   const [showDate, setShowDate] = useState(true);
   const [downloadFormat, setDownloadFormat] = useState<'jpg' | 'png'>('png');
@@ -53,6 +55,7 @@ export default function PhotoBooth({ session, onExit }: PhotoBoothProps) {
 
   const stripRef = useRef<HTMLDivElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const stickerUploadInputRef = useRef<HTMLInputElement>(null);
 
   const shootingActive =
     phase === 'countdown' || phase === 'preview' ||
@@ -135,6 +138,8 @@ export default function PhotoBooth({ session, onExit }: PhotoBoothProps) {
     setPhotoFilters(['none', 'none', 'none', 'none']);
     setCompositeUrl(null);
     setEditingPhotoIdx(null);
+    setSelectedSticker(null);
+    setActiveStickerId(null);
     setSelectedFrame(session.frame);
     clearPhotosFromStorage();
   }, [session.frame]);
@@ -185,14 +190,40 @@ export default function PhotoBooth({ session, onExit }: PhotoBoothProps) {
     const rect = stripRef.current.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100;
     const y = ((e.clientY - rect.top) / rect.height) * 100;
+    const id = Date.now().toString();
     setStickers(prev => [...prev, {
-      id: Date.now().toString(), emoji: selectedSticker, x, y,
+      id,
+      kind: selectedSticker.kind,
+      content: selectedSticker.content,
+      x,
+      y,
+      scale: 1,
+      rotation: 0,
     }]);
+    setActiveStickerId(id);
   }, [selectedSticker]);
+  const handleCustomStickerUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) {
+      alert('仅支持 JPG / PNG / WEBP 格式');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setSelectedSticker({ kind: 'image', content: dataUrl });
+    };
+    reader.onerror = () => alert('读取贴纸失败');
+    reader.readAsDataURL(file);
+  }, []);
+
 
   const handleStickerMouseDown = useCallback((e: React.MouseEvent, stickerId: string) => {
     e.stopPropagation();
     e.preventDefault();
+    setActiveStickerId(stickerId);
     if (!stripRef.current) return;
 
     const onMove = (me: MouseEvent) => {
@@ -212,6 +243,7 @@ export default function PhotoBooth({ session, onExit }: PhotoBoothProps) {
 
   const handleStickerTouchStart = useCallback((e: React.TouchEvent, stickerId: string) => {
     e.stopPropagation();
+    setActiveStickerId(stickerId);
     if (!stripRef.current) return;
 
     const onMove = (te: TouchEvent) => {
@@ -233,6 +265,11 @@ export default function PhotoBooth({ session, onExit }: PhotoBoothProps) {
 
   const removeSticker = useCallback((id: string) => {
     setStickers(prev => prev.filter(s => s.id !== id));
+    setActiveStickerId(prev => (prev === id ? null : prev));
+  }, []);
+
+  const updateSticker = useCallback((id: string, patch: Partial<PlacedSticker>) => {
+    setStickers(prev => prev.map(s => (s.id === id ? { ...s, ...patch } : s)));
   }, []);
 
   const getPhotoFilter = (idx: number) => {
@@ -279,10 +316,16 @@ export default function PhotoBooth({ session, onExit }: PhotoBoothProps) {
           {photos.map((photo, i) => (
             <div
               key={i}
-              className={`relative w-full flex-1 min-h-[48px] rounded-xl overflow-hidden cursor-pointer ring-2 transition-all ${
+              className={`relative w-full max-w-[92%] mx-auto aspect-[4/3] rounded-xl overflow-hidden ring-2 transition-all ${
+                editTab === 'sticker' ? 'cursor-default' : 'cursor-pointer'
+              } ${
                 editingPhotoIdx === i ? 'ring-primary' : 'ring-transparent'
               }`}
-              onClick={(e) => { e.stopPropagation(); setEditingPhotoIdx(editingPhotoIdx === i ? null : i); }}
+              onClick={(e) => {
+                if (editTab === 'sticker') return;
+                e.stopPropagation();
+                setEditingPhotoIdx(editingPhotoIdx === i ? null : i);
+              }}
             >
               {photo ? (
                 <img
@@ -302,10 +345,16 @@ export default function PhotoBooth({ session, onExit }: PhotoBoothProps) {
           {photos.map((photo, i) => (
             <div
               key={i}
-              className={`relative aspect-square rounded-xl overflow-hidden cursor-pointer ring-2 transition-all ${
+              className={`relative aspect-[3/4] rounded-xl overflow-hidden cursor-pointer ring-2 transition-all ${
+                editTab === 'sticker' ? 'cursor-default' : 'cursor-pointer'
+              } ${
                 editingPhotoIdx === i ? 'ring-primary' : 'ring-transparent'
               }`}
-              onClick={(e) => { e.stopPropagation(); setEditingPhotoIdx(editingPhotoIdx === i ? null : i); }}
+              onClick={(e) => {
+                if (editTab === 'sticker') return;
+                e.stopPropagation();
+                setEditingPhotoIdx(editingPhotoIdx === i ? null : i);
+              }}
             >
               {photo ? (
                 <img
@@ -334,12 +383,24 @@ export default function PhotoBooth({ session, onExit }: PhotoBoothProps) {
       {stickers.map(s => (
         <div
           key={s.id}
-          className="absolute select-none cursor-grab active:cursor-grabbing group"
-          style={{ left: `${s.x}%`, top: `${s.y}%`, transform: 'translate(-50%, -50%)' }}
+          className={`absolute z-[5] select-none cursor-grab active:cursor-grabbing group ${
+            activeStickerId === s.id ? 'ring-2 ring-primary/35 rounded-lg' : ''
+          }`}
+          style={{
+            left: `${s.x}%`,
+            top: `${s.y}%`,
+            transform: `translate(-50%, -50%) rotate(${s.rotation}deg) scale(${s.scale})`,
+            transformOrigin: 'center',
+          }}
           onMouseDown={e => handleStickerMouseDown(e, s.id)}
           onTouchStart={e => handleStickerTouchStart(e, s.id)}
+          onClick={(e) => { e.stopPropagation(); setActiveStickerId(s.id); }}
         >
-          <span className="text-2xl animate-bounce-in">{s.emoji}</span>
+          {s.kind === 'emoji' ? (
+            <span className="text-2xl animate-bounce-in">{s.content}</span>
+          ) : (
+            <img src={s.content} alt="custom sticker" className="w-11 h-11 object-contain animate-bounce-in pointer-events-none" />
+          )}
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); removeSticker(s.id); }}
@@ -370,7 +431,7 @@ export default function PhotoBooth({ session, onExit }: PhotoBoothProps) {
       ) : (
         <div className="grid grid-cols-2 gap-2 max-w-[240px] mx-auto">
           {[0, 1, 2, 3].map(i => (
-            <div key={i} className="aspect-square rounded-lg overflow-hidden bg-muted/30">
+            <div key={i} className="aspect-[3/4] rounded-lg overflow-hidden bg-muted/30">
               {photos[i] ? (
                 <img src={photos[i]} alt={`${i + 1}`} className="w-full h-full object-cover" />
               ) : (
@@ -381,6 +442,261 @@ export default function PhotoBooth({ session, onExit }: PhotoBoothProps) {
         </div>
       )}
     </div>
+  );
+
+  const editingContent = (
+    <>
+      <div className="glass-panel p-4 animate-fade-in">
+        <div
+          ref={stripRef}
+          className="relative mx-auto photo-strip-shadow rounded-2xl overflow-hidden cursor-crosshair flex flex-col"
+          style={{
+            backgroundColor: selectedFrame.imageUrl ? 'transparent' : selectedFrame.bgColor,
+            border: selectedFrame.imageUrl ? 'none' : `2px solid ${selectedFrame.borderColor}`,
+            maxWidth: layout === 'vertical' ? 320 : 360,
+            aspectRatio: getStripAspectRatio(layout),
+            backgroundImage: selectedFrame.imageUrl ? `url(${selectedFrame.imageUrl})` : undefined,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+          onClick={handleStripClick}
+        >
+          <div className="relative z-[1] flex flex-col flex-1 min-h-0 w-full h-full">
+            {renderStripInner()}
+          </div>
+        </div>
+      </div>
+
+      <div className="glass-panel p-4 animate-fade-in">
+        <div className="flex gap-1 mb-4 bg-muted/40 rounded-xl p-1">
+          {([
+            { key: 'filter' as const, icon: Sparkles, label: '滤镜' },
+            { key: 'frame' as const, icon: Image, label: '边框' },
+            { key: 'sticker' as const, icon: Smile, label: '贴纸' },
+            { key: 'text' as const, icon: Type, label: '文字' },
+          ]).map(tab => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setEditTab(tab.key)}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-all ${
+                editTab === tab.key
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <tab.icon className="w-3.5 h-3.5" />
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {editTab === 'filter' && (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              {editingPhotoIdx !== null ? `第 ${editingPhotoIdx + 1} 张独立滤镜` : '全局滤镜'}
+            </p>
+            <p className="text-xs text-primary/90">可以单张各自选取滤镜哦~</p>
+            <div className="flex flex-wrap gap-2">
+              {FILTERS.map((f: FilterDef) => {
+                const isActive = editingPhotoIdx !== null
+                  ? photoFilters[editingPhotoIdx] === f.filter || (photoFilters[editingPhotoIdx] === 'none' && f.id === 'none')
+                  : globalFilter === f.filter || (globalFilter === 'none' && f.id === 'none');
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => {
+                      if (editingPhotoIdx !== null) {
+                        setPhotoFilters(prev => {
+                          const next = [...prev];
+                          next[editingPhotoIdx] = f.filter;
+                          return next;
+                        });
+                      } else {
+                        setGlobalFilter(f.filter);
+                      }
+                    }}
+                    className={`booth-chip ${isActive ? 'booth-chip-active' : 'booth-chip-inactive'}`}
+                  >
+                    {f.name}
+                  </button>
+                );
+              })}
+            </div>
+            {editingPhotoIdx !== null && (
+              <button type="button" onClick={() => setEditingPhotoIdx(null)} className="text-xs text-primary hover:underline">
+                ← 返回全局滤镜
+              </button>
+            )}
+          </div>
+        )}
+
+        {editTab === 'frame' && (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">完成后可更换边框；需更换自定义底图请返回设置页</p>
+            <div className="flex flex-wrap gap-2">
+              {FRAMES.map(f => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setSelectedFrame({ ...f, imageUrl: undefined })}
+                  className={`booth-chip flex items-center gap-1.5 ${
+                    selectedFrame.id === f.id && !selectedFrame.imageUrl ? 'booth-chip-active' : 'booth-chip-inactive'
+                  }`}
+                >
+                  <span
+                    className="w-3.5 h-3.5 rounded-full border"
+                    style={{ backgroundColor: f.bgColor, borderColor: f.borderColor }}
+                  />
+                  {f.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {editTab === 'sticker' && (
+          <div className="space-y-2">
+            <input
+              ref={stickerUploadInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={handleCustomStickerUpload}
+            />
+            <p className="text-xs text-muted-foreground">先选贴纸，再点击整张相纸放置；拖拽即可移动</p>
+            <div className="flex flex-wrap gap-1.5">
+              {STICKER_EMOJIS.map(emoji => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => setSelectedSticker(
+                    selectedSticker?.kind === 'emoji' && selectedSticker.content === emoji
+                      ? null
+                      : { kind: 'emoji', content: emoji },
+                  )}
+                  className={`w-9 h-9 rounded-lg flex items-center justify-center text-lg transition-all ${
+                    selectedSticker?.kind === 'emoji' && selectedSticker.content === emoji
+                      ? 'bg-primary/15 ring-2 ring-primary/30 scale-110'
+                      : 'hover:bg-muted/60'
+                  }`}
+                >
+                  {emoji}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => stickerUploadInputRef.current?.click()}
+                className={`h-9 px-2 rounded-lg text-xs border transition-all ${
+                  selectedSticker?.kind === 'image'
+                    ? 'bg-primary/10 border-primary/40 text-foreground'
+                    : 'bg-card/60 border-border/60 hover:bg-muted/40'
+                }`}
+              >
+                自定义贴纸
+              </button>
+            </div>
+            {activeStickerId && (
+              <div className="pt-2 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted-foreground shrink-0">大小</span>
+                  <input
+                    type="range"
+                    min={0.5}
+                    max={2.5}
+                    step={0.05}
+                    value={stickers.find(s => s.id === activeStickerId)?.scale ?? 1}
+                    onChange={(e) => updateSticker(activeStickerId, { scale: Number(e.target.value) })}
+                    className="w-full"
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted-foreground shrink-0">旋转</span>
+                  <input
+                    type="range"
+                    min={-180}
+                    max={180}
+                    step={1}
+                    value={stickers.find(s => s.id === activeStickerId)?.rotation ?? 0}
+                    onChange={(e) => updateSticker(activeStickerId, { rotation: Number(e.target.value) })}
+                    className="w-full"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => updateSticker(activeStickerId, { scale: 1, rotation: 0 })}
+                  className="text-xs text-primary hover:underline"
+                >
+                  重置当前贴纸
+                </button>
+              </div>
+            )}
+            {stickers.length > 0 && (
+              <button
+                type="button"
+                onClick={() => { setStickers([]); setActiveStickerId(null); }}
+                className="text-xs text-destructive hover:underline"
+              >
+                清除所有贴纸
+              </button>
+            )}
+          </div>
+        )}
+
+        {editTab === 'text' && (
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="custom-text" className="text-xs text-muted-foreground block mb-1">自定义文字</label>
+              <input
+                id="custom-text"
+                type="text"
+                value={customText}
+                onChange={e => setCustomText(e.target.value)}
+                placeholder="输入落款 / slogan..."
+                className="booth-input w-full"
+                maxLength={30}
+              />
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showDate}
+                onChange={e => setShowDate(e.target.checked)}
+                className="w-4 h-4 rounded accent-primary"
+              />
+              <span className="text-sm">显示日期</span>
+            </label>
+          </div>
+        )}
+      </div>
+
+      <div className="glass-panel p-4 animate-fade-in">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-xs text-muted-foreground">格式</span>
+          {(['png', 'jpg'] as const).map(fmt => (
+            <button
+              key={fmt}
+              type="button"
+              onClick={() => setDownloadFormat(fmt)}
+              className={`booth-chip uppercase ${
+                downloadFormat === fmt ? 'booth-chip-active' : 'booth-chip-inactive'
+              }`}
+            >
+              {fmt}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button type="button" onClick={handleDownload} disabled={!compositeUrl} className="booth-btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-40 min-w-[140px]">
+            <Download className="w-4 h-4" /> 下载高清图片
+          </button>
+          <button type="button" onClick={resetAll} className="booth-btn flex items-center gap-1.5">
+            <RotateCcw className="w-4 h-4" /> 重新拍摄
+          </button>
+        </div>
+      </div>
+    </>
   );
 
   return (
@@ -416,6 +732,11 @@ export default function PhotoBooth({ session, onExit }: PhotoBoothProps) {
         </h1>
       </header>
 
+      {phase === 'editing' && photos.length === 4 ? (
+        <main className="px-4 pb-8 max-w-3xl mx-auto pt-5 space-y-4">
+          {editingContent}
+        </main>
+      ) : (
       <main className="flex flex-col lg:flex-row gap-5 px-4 pb-8 max-w-6xl mx-auto pt-5">
         <div className="flex-1 min-w-0">
           {!cameraOn && phase !== 'editing' ? (
@@ -633,201 +954,7 @@ export default function PhotoBooth({ session, onExit }: PhotoBoothProps) {
         </div>
 
         <div className="flex-1 min-w-0 space-y-4">
-          {phase === 'editing' && photos.length === 4 ? (
-            <>
-              <div className="glass-panel p-4 animate-fade-in">
-                <div
-                  ref={stripRef}
-                  className={`relative mx-auto photo-strip-shadow rounded-2xl overflow-hidden cursor-crosshair flex flex-col ${
-                    layout === 'vertical' ? '' : ''
-                  }`}
-                  style={{
-                    backgroundColor: selectedFrame.imageUrl ? 'transparent' : selectedFrame.bgColor,
-                    border: selectedFrame.imageUrl ? 'none' : `2px solid ${selectedFrame.borderColor}`,
-                    maxWidth: layout === 'vertical' ? 320 : 360,
-                    aspectRatio: getStripAspectRatio(layout),
-                    backgroundImage: selectedFrame.imageUrl ? `url(${selectedFrame.imageUrl})` : undefined,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                  }}
-                  onClick={handleStripClick}
-                >
-                  {/* 格内照片叠在自定义底图之上 */}
-                  <div className="relative z-[1] flex flex-col flex-1 min-h-0 w-full h-full">
-                    {renderStripInner()}
-                  </div>
-                </div>
-              </div>
-
-              <div className="glass-panel p-4 animate-fade-in">
-                <div className="flex gap-1 mb-4 bg-muted/40 rounded-xl p-1">
-                  {([
-                    { key: 'filter' as const, icon: Sparkles, label: '滤镜' },
-                    { key: 'frame' as const, icon: Image, label: '边框' },
-                    { key: 'sticker' as const, icon: Smile, label: '贴纸' },
-                    { key: 'text' as const, icon: Type, label: '文字' },
-                  ]).map(tab => (
-                    <button
-                      key={tab.key}
-                      type="button"
-                      onClick={() => setEditTab(tab.key)}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-all ${
-                        editTab === tab.key
-                          ? 'bg-card text-foreground shadow-sm'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      <tab.icon className="w-3.5 h-3.5" />
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-
-                {editTab === 'filter' && (
-                  <div className="space-y-3">
-                    <p className="text-xs text-muted-foreground">
-                      {editingPhotoIdx !== null ? `第 ${editingPhotoIdx + 1} 张独立滤镜` : '全局滤镜'}
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {FILTERS.map((f: FilterDef) => {
-                        const isActive = editingPhotoIdx !== null
-                          ? photoFilters[editingPhotoIdx] === f.filter || (photoFilters[editingPhotoIdx] === 'none' && f.id === 'none')
-                          : globalFilter === f.filter || (globalFilter === 'none' && f.id === 'none');
-                        return (
-                          <button
-                            key={f.id}
-                            type="button"
-                            onClick={() => {
-                              if (editingPhotoIdx !== null) {
-                                setPhotoFilters(prev => {
-                                  const next = [...prev];
-                                  next[editingPhotoIdx] = f.filter;
-                                  return next;
-                                });
-                              } else {
-                                setGlobalFilter(f.filter);
-                              }
-                            }}
-                            className={`booth-chip ${isActive ? 'booth-chip-active' : 'booth-chip-inactive'}`}
-                          >
-                            {f.name}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {editingPhotoIdx !== null && (
-                      <button type="button" onClick={() => setEditingPhotoIdx(null)} className="text-xs text-primary hover:underline">
-                        ← 返回全局滤镜
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {editTab === 'frame' && (
-                  <div className="space-y-3">
-                    <p className="text-xs text-muted-foreground">完成后可更换边框；需更换自定义底图请返回设置页</p>
-                    <div className="flex flex-wrap gap-2">
-                      {FRAMES.map(f => (
-                        <button
-                          key={f.id}
-                          type="button"
-                          onClick={() => setSelectedFrame({ ...f, imageUrl: undefined })}
-                          className={`booth-chip flex items-center gap-1.5 ${
-                            selectedFrame.id === f.id && !selectedFrame.imageUrl ? 'booth-chip-active' : 'booth-chip-inactive'
-                          }`}
-                        >
-                          <span
-                            className="w-3.5 h-3.5 rounded-full border"
-                            style={{ backgroundColor: f.bgColor, borderColor: f.borderColor }}
-                          />
-                          {f.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {editTab === 'sticker' && (
-                  <div className="space-y-2">
-                    <p className="text-xs text-muted-foreground">选择贴纸后点击照片放置，拖拽移动</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {STICKER_EMOJIS.map(emoji => (
-                        <button
-                          key={emoji}
-                          type="button"
-                          onClick={() => setSelectedSticker(selectedSticker === emoji ? null : emoji)}
-                          className={`w-9 h-9 rounded-lg flex items-center justify-center text-lg transition-all ${
-                            selectedSticker === emoji
-                              ? 'bg-primary/15 ring-2 ring-primary/30 scale-110'
-                              : 'hover:bg-muted/60'
-                          }`}
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
-                    {stickers.length > 0 && (
-                      <button type="button" onClick={() => setStickers([])} className="text-xs text-destructive hover:underline">
-                        清除所有贴纸
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {editTab === 'text' && (
-                  <div className="space-y-3">
-                    <div>
-                      <label htmlFor="custom-text" className="text-xs text-muted-foreground block mb-1">自定义文字</label>
-                      <input
-                        id="custom-text"
-                        type="text"
-                        value={customText}
-                        onChange={e => setCustomText(e.target.value)}
-                        placeholder="输入落款 / slogan..."
-                        className="booth-input w-full"
-                        maxLength={30}
-                      />
-                    </div>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={showDate}
-                        onChange={e => setShowDate(e.target.checked)}
-                        className="w-4 h-4 rounded accent-primary"
-                      />
-                      <span className="text-sm">显示日期</span>
-                    </label>
-                  </div>
-                )}
-              </div>
-
-              <div className="glass-panel p-4 animate-fade-in">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-xs text-muted-foreground">格式</span>
-                  {(['png', 'jpg'] as const).map(fmt => (
-                    <button
-                      key={fmt}
-                      type="button"
-                      onClick={() => setDownloadFormat(fmt)}
-                      className={`booth-chip uppercase ${
-                        downloadFormat === fmt ? 'booth-chip-active' : 'booth-chip-inactive'
-                      }`}
-                    >
-                      {fmt}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex gap-2 flex-wrap">
-                  <button type="button" onClick={handleDownload} disabled={!compositeUrl} className="booth-btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-40 min-w-[140px]">
-                    <Download className="w-4 h-4" /> 下载高清图片
-                  </button>
-                  <button type="button" onClick={resetAll} className="booth-btn flex items-center gap-1.5">
-                    <RotateCcw className="w-4 h-4" /> 重新拍摄
-                  </button>
-                </div>
-              </div>
-            </>
-          ) : cameraOn ? (
+          {cameraOn ? (
             miniPreview
           ) : !cameraOn && phase === 'editing' ? (
             <div className="glass-panel p-8 text-center text-sm text-muted-foreground animate-fade-in">
@@ -836,6 +963,7 @@ export default function PhotoBooth({ session, onExit }: PhotoBoothProps) {
           ) : null}
         </div>
       </main>
+      )}
     </div>
   );
 }
