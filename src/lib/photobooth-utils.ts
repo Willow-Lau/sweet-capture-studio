@@ -204,18 +204,20 @@ export async function generateComposite(options: {
       });
     }
   } else {
-    const innerW = W - 2 * PAD;
-    const innerH = H - 2 * PAD - TEXT_H;
-    // 竖排四格：整体 1:3；单张照片 4:3（横向）
-    const desiredCellHByWidth = innerW * (3 / 4);
-    const maxCellHByHeight = (innerH - 3 * GAP) / 4;
-    const cellH = Math.min(desiredCellHByWidth, maxCellHByHeight);
-    const cellW = cellH * (4 / 3);
+    // 竖排四格导出几何与预览保持一致：
+    // 预览中使用 p-[4%]、pb-[2%]、gap-[3.5%]（百分比基于宽度）和 max-w-[92%]
+    const photoPadTop = W * 0.04;
+    const photoPadX = W * 0.04;
+    const photoPadBottom = W * 0.02;
+    const photoGap = W * 0.035;
+    const cellW = (W - 2 * photoPadX) * 0.92;
+    const cellH = cellW * (3 / 4);
     const startX = (W - cellW) / 2;
+    const startY = photoPadTop;
     for (let i = 0; i < 4; i++) {
       slots.push({
         x: startX,
-        y: PAD + i * (cellH + GAP),
+        y: startY + i * (cellH + photoGap),
         cw: cellW,
         ch: cellH,
       });
@@ -286,8 +288,9 @@ export async function generateComposite(options: {
     const gridBottom = Math.max(...slots.map(s => s.y + s.ch));
     textBaseY = gridBottom + 30;
   } else {
-    const innerH = H - 2 * PAD - TEXT_H;
-    textBaseY = PAD + innerH + 26;
+    const photosBottom = Math.max(...slots.map(s => s.y + s.ch));
+    const footerZoneH = H - photosBottom;
+    textBaseY = photosBottom + footerZoneH * 0.45;
   }
 
   const footer = frameFooterColors(frame);

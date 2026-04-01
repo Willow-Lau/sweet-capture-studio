@@ -565,7 +565,7 @@ export default function PhotoBooth({ session, onExit }: PhotoBoothProps) {
               className="hidden"
               onChange={handleCustomStickerUpload}
             />
-            <p className="text-xs text-muted-foreground">先选贴纸，再点击整张相纸放置；拖拽即可移动</p>
+            <p className="text-xs text-muted-foreground">选中贴纸，点击图片放置</p>
             <div className="flex flex-wrap gap-1.5">
               {STICKER_EMOJIS.map(emoji => (
                 <button
